@@ -1,3 +1,58 @@
+# Dynamically embed XML schemas into a source file with an associated header.
+#
+# Arguments:
+#  schema_paths        - The paths to schemas to embed.
+#  module_namespace    - The name of the module that's added to six::${module_namespace}::schemas
+#  hdr                 - The path to the header file to create.
+#  cpp                 - The path to the source file to create.
+function(generate_embedded_schemas schema_paths module_namespace hdr cpp)
+    set(EMBED_NAMESPACE_HEADER "namespace six\n{\nnamespace ${module_namespace}\n{\nnamespace schemas\n{\n\n")
+    set(EMBED_NAMESPACE_FOOTER "}\n}\n}\n")
+
+    # Write the SICD schema header at compile-time.
+    file(WRITE ${hdr} "#pragma once\n\n#include <vector>\n\n${EMBED_NAMESPACE_HEADER}")
+    file(WRITE ${cpp} "#include <vector>\n\n${EMBED_NAMESPACE_HEADER}")
+    set(functions "")
+    foreach(schema_file_path ${SCHEMAS_TO_EMBED})
+
+        # Scrub the schema file so that it's converted into a safe-ish function name.
+        get_filename_component(schema_file ${schema_file_path} NAME)
+        string(REPLACE "." "_" schema_file_safe ${schema_file})
+
+        # Function declaration.
+        file(APPEND ${hdr} "/*! Content of ${schema_file} */\n")
+        file(APPEND ${hdr} "const char* ${schema_file_safe}();\n\n")
+
+        # Function definition.
+        file(READ ${schema_file_path} schema_content)
+        file(APPEND ${cpp} "const char* ${schema_file_safe}()\n{\n")
+        file(APPEND ${cpp} "  return R\"(")
+        file(APPEND ${cpp} ${schema_content})
+        file(APPEND ${cpp} ")\";\n")
+        file(APPEND ${cpp} "}\n\n")
+
+        list(APPEND functions "${schema_file_safe}()")
+    endforeach()
+
+    # Add a utility function that'll get a vector that contains every schema.
+    file(APPEND ${hdr} "/*! Get references to all the embedded schemas */\n")
+    file(APPEND ${hdr} "std::vector<const char*> All();\n\n")
+    file(APPEND ${cpp} "std::vector<const char*> All()\n{\n")
+    list(JOIN functions ", " functions)
+    file(APPEND ${cpp} "  return { ${functions} };\n")
+    file(APPEND ${cpp} "}\n\n")
+    file(APPEND ${hdr} "${EMBED_NAMESPACE_FOOTER}")
+    file(APPEND ${cpp} "${EMBED_NAMESPACE_FOOTER}")
+endfunction()
+
+file(GLOB SCHEMAS_TO_EMBED conf/schema/*.xsd)
+set(schema_header "${CMAKE_CURRENT_BINARY_DIR}/include/six/sicd/Schemas.h")
+set(schema_source "${CMAKE_CURRENT_BINARY_DIR}/source/Schemas.cpp")
+generate_embedded_schemas("${SCHEMAS_TO_EMBED}" sicd ${schema_header} ${schema_source})
+install(FILES "${schema_header}"
+        DESTINATION "${CODA_STD_PROJECT_INCLUDE_DIR}/six/sicd"
+        ${CODA_INSTALL_OPTION})
+
 coda_add_module(
     six.sicd
     DEPS six-c++ units-c++
@@ -36,7 +91,8 @@ coda_add_module(
         source/SICDWriteControl.cpp
         source/SlantPlanePixelTransformer.cpp
         source/Timeline.cpp
-        source/Utilities.cpp)
+        source/Utilities.cpp
+        ${schema_source})
 
 coda_add_tests(
     MODULE_NAME six.sicd
