@@ -459,17 +459,19 @@ math::linear::MatrixMxN<2, 2> ProjectionModel::slantToImagePartials(
             mTimeCOAPoly(imageGridPoint.row, imageGridPoint.col);
     const Vector3 rARP = mARPPoly(timeCOA);
     const Vector3 vARP = mARPVelPoly(timeCOA);
-    const Vector3 imageGridPointECEF = imageGridToECEF(imageGridPoint);
-    Vector3 slantRange = imageGridPointECEF - rARP;
+    Vector3 slantRange = rARP - mSCP;
     slantRange.normalize();
-    Vector3 slantNormal = math::linear::cross(slantRange, vARP);
+    Vector3 slantNormal = math::linear::cross(slantRange, vARP) * mLookDir;
     slantNormal.normalize();
     Vector3 slantAzimuth = math::linear::cross(slantNormal, slantRange);
     slantAzimuth.normalize();
+
+    // Second, map image grid point to the slant plane and compute finite differences
+    const Vector3 refPoint = imageToScene(imageGridPoint, mSCP, slantNormal);
     const types::RowCol<double> rangePerturb =
-            sceneToImage(imageGridPointECEF + delta * slantRange);
+            sceneToImage(refPoint + delta * slantRange);
     const types::RowCol<double> azimuthPerturb =
-            sceneToImage(imageGridPointECEF + delta * slantAzimuth);
+            sceneToImage(refPoint + delta * slantAzimuth);
     math::linear::MatrixMxN<2, 2> partials(0.0);
     partials[0][0] = (imageGridPoint.row - rangePerturb.row) / delta;
     partials[0][1] = (imageGridPoint.row - azimuthPerturb.row) / delta;
